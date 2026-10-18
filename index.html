@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Meter Reader — OCR Alat Ukur</title>
+<style>
+:root{color-scheme:dark;--bg:#07110f;--panel:#0b1c18;--line:#1d8065;--green:#42e6ad;--muted:#a6c9bf;--red:#ff626b}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#e7fff6;font:15px system-ui,Arial,sans-serif}
+header{padding:18px clamp(14px,3vw,32px);border-bottom:1px solid var(--line);background:#061714}
+h1{font-size:clamp(20px,3vw,30px);margin:0;color:var(--green)}header p{margin:5px 0 0;color:var(--muted)}
+main{max-width:1300px;margin:auto;padding:16px;display:grid;grid-template-columns:minmax(280px,350px) minmax(0,1fr);gap:16px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;min-width:0}
+h2{font-size:17px;margin:0 0 13px;color:var(--green)}h3{font-size:15px;color:var(--green);margin:16px 0 8px}
+button,.file-label,select,input{font:inherit}button,.file-label{border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:#102c24;color:#e7fff6;cursor:pointer}
+button.primary{background:var(--green);color:#062219;font-weight:700}button.danger{border-color:var(--red);color:#ff9ba1}button:disabled{opacity:.45;cursor:not-allowed}
+input[type=file]{max-width:100%}input[type=number],select{width:100%;padding:8px;background:#061713;color:#e7fff6;border:1px solid var(--line);border-radius:7px}
+.controls{display:flex;gap:8px;flex-wrap:wrap}.controls>*{flex:1}.field{display:block;margin:12px 0 6px;color:var(--muted)}.hint{font-size:12px;color:var(--muted);line-height:1.5}
+.stage{background:#020807;border-radius:9px;overflow:hidden;border:1px solid #235747;position:relative}
+video{display:block;width:100%;max-height:440px;object-fit:contain;background:#020807}
+.canvases{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}.canvases canvas{width:100%;height:auto;background:#000;border:1px solid #235747;border-radius:7px}
+.metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}
+.metric{padding:12px;border:1px solid #235747;border-radius:9px;overflow-wrap:anywhere}.metric span{display:block;color:var(--muted);font-size:12px}.metric strong{font-size:clamp(20px,3vw,30px);color:var(--green)}
+.status{margin:12px 0;padding:10px;border-radius:8px;background:#071510;border:1px solid #235747;overflow-wrap:anywhere}
+.status.ok{border-color:var(--green)}.status.warn{border-color:#d9ad48;color:#ffe1a0}.status.bad{border-color:var(--red);color:#ff9ba1}
+table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:8px;border-bottom:1px solid #235747;vertical-align:top;overflow-wrap:anywhere}th{color:var(--green)}
+.table-wrap{max-height:300px;overflow:auto;margin-top:12px}
+footer{padding:16px;text-align:center;color:var(--muted);font-size:12px}
+@media(max-width:800px){main{grid-template-columns:1fr}.canvases{grid-template-columns:1fr}.metrics{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<header><h1>METER READER / OCR</h1><p>Pembaca angka alat ukur — kamera realtime dan file video</p></header>
+<main>
+<section class="panel">
+<h2>1. Sumber gambar</h2>
+<div class="controls">
+<button id="startCam" class="primary">Mulai kamera</button>
+<button id="stopCam" class="danger" disabled>Hentikan</button>
+</div>
+<label class="field" for="videoFile">Pilih file video</label>
+<input id="videoFile" type="file" accept="video/*">
+<p class="hint">Kamera memerlukan izin browser dan biasanya harus berjalan melalui HTTPS atau localhost. File video diproses saat diputar.</p>
+<h3>2. Pengaturan</h3>
+<label class="field" for="interval">Interval OCR (detik)</label>
+<input id="interval" type="number" min="0.5" max="30" step="0.5" value="2">
+<label class="field" for="threshold">Threshold gambar (0–255)</label>
+<input id="threshold" type="number" min="0" max="255" value="145">
+<label class="field" for="scale">Pembesaran gambar (1–4)</label>
+<input id="scale" type="number" min="1" max="4" step="0.5" value="2">
+<label class="field" for="minConfidence">Keyakinan OCR minimum (%)</label>
+<input id="minConfidence" type="number" min="0" max="100" value="45">
+<label class="field" for="stable">Pembacaan sama berturut-turut sebelum valid</label>
+<input id="stable" type="number" min="1" max="10" value="2">
+<label class="field" for="mode">Mode peningkatan gambar</label>
+<select id="mode"><option value="sharpen">Grayscale + kontras + penajaman</option><option value="threshold">Grayscale + threshold hitam/putih</option><option value="gray">Grayscale + kontras</option></select>
+<div class="controls" style="margin-top:14px">
+<button id="playVideo" disabled>Putar video</button><button id="pauseVideo" disabled>Jeda video</button>
+</div>
+<h3>3. Aksi log</h3>
+<div class="controls">
+<button id="export" class="primary">Ekspor CSV</button><button id="clear" class="danger">Hapus log</button>
+</div>
+<p class="hint">OCR hanya membaca teks yang terlihat pada area gambar. Arahkan kamera agar layar alat ukur besar, fokus, tidak miring, dan minim pantulan.</p>
+</section>
+<section class="panel">
+<h2>Pratinjau sumber</h2>
+<div class="stage"><video id="video" playsinline muted controls></video></div>
+<div class="canvases">
+<div><h3>Gambar asli hasil crop</h3><canvas id="original" width="640" height="240"></canvas></div>
+<div><h3>Gambar setelah enhancement</h3><canvas id="processed" width="640" height="240"></canvas></div>
+</div>
+<div id="status" class="status">Siap. Mulai kamera atau pilih file video.</div>
+<div class="metrics">
+<div class="metric"><span>Angka yang terdeteksi</span><strong id="numbers">—</strong></div>
+<div class="metric"><span>Keyakinan OCR</span><strong id="confidence">—</strong></div>
+</div>
+<h3>Log pembacaan</h3>
+<div class="table-wrap"><table><thead><tr><th>Waktu</th><th>Hasil</th><th>Keyakinan</th><th>Status</th></tr></thead><tbody id="logs"><tr><td colspan="4">Belum ada data.</td></tr></tbody></table></div>
+</section>
+</main>
+<footer>HTML + Tesseract.js CDN • Pemrosesan dilakukan di browser • Hasil OCR perlu diverifikasi sebelum digunakan untuk keputusan teknis</footer>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script>
+(() => {
+const $ = id => document.getElementById(id);
+const video=$('video'), file=$('videoFile'), original=$('original'), processed=$('processed');
+const octx=original.getContext('2d',{willReadFrequently:true}), pctx=processed.getContext('2d',{willReadFrequently:true});
+let stream=null, worker=null, busy=false, timer=null, lastRun=0, logRows=[], previousNumbers='', stableCount=0, videoUrl=null;
+const setStatus=(text,kind='')=>{$('status').className='status '+kind;$('status').textContent=text};
+function settings(){
+ return {interval:Math.max(.5,Number($('interval').value)||2)*1000,threshold:Math.max(0,Math.min(255,Number($('threshold').value)||145)),scale:Math.max(1,Math.min(4,Number($('scale').value)||2)),minConfidence:Math.max(0,Math.min(100,Number($('minConfidence').value)||0)),stable:Math.max(1,Math.min(10,Number($('stable').value)||2)),mode:$('mode').value};
+}
+async function getWorker(){
+ if(worker)return worker;
+ if(!window.Tesseract)throw Error('Tesseract.js gagal dimuat. Periksa koneksi internet/CDN.');
+ setStatus('Memuat mesin OCR untuk pertama kali…');
+ worker=await Tesseract.createWorker('eng',1,{logger:m=>{if(m.status==='recognizing text')setStatus('OCR berjalan… '+Math.round((m.progress||0)*100)+'%');}});
+ await worker.setParameters({tessedit_char_whitelist:'0123456789.,:-+VAWkKmhH% ',preserve_interword_spaces:'1',tessedit_pageseg_mode:'6'});
+ return worker;
+}
+async function startCamera(){
+ try{
+  stopStream(); if(videoUrl){URL.revokeObjectURL(videoUrl);videoUrl=null;}
+  video.pause();video.removeAttribute('src');video.srcObject=null;
+  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});
+  video.srcObject=stream;await video.play();$('startCam').disabled=true;$('stopCam').disabled=false;$('playVideo').disabled=true;$('pauseVideo').disabled=true;
+  setStatus('Kamera aktif. OCR berjalan sesuai interval.','ok');startLoop();
+ }catch(e){setStatus('Kamera gagal: '+e.message+'. Pastikan izin kamera diberikan dan halaman memakai HTTPS/localhost.','bad');}
+}
+function stopStream(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}}
+function stopCamera(){
+ stopStream();if(video.srcObject)video.srcObject=null;video.pause();stopLoop();
+ $('startCam').disabled=false;$('stopCam').disabled=true;
+ setStatus('Kamera dihentikan.');
+}
+function stopLoop(){if(timer){clearInterval(timer);timer=null;}}
+function startLoop(){stopLoop();timer=setInterval(()=>{if(!busy&&!video.paused&&video.readyState>=2)processFrame();},settings().interval);}
+function cropAndEnhance(){
+ const w=video.videoWidth,h=video.videoHeight;if(!w||!h)throw Error('Belum ada frame video.');
+ // Crop bagian tengah agar latar di tepi berkurang. Ubah proporsi ini bila layar alat ukur berada di posisi lain.
+ const cropW=Math.floor(w*.92),cropH=Math.floor(h*.62),sx=Math.floor((w-cropW)/2),sy=Math.floor((h-cropH)/2);
+ const outW=Math.max(320,Math.floor(cropW*settings().scale)),outH=Math.max(120,Math.floor(cropH*settings().scale));
+ original.width=outW;original.height=outH;processed.width=outW;processed.height=outH;
+ octx.drawImage(video,sx,sy,cropW,cropH,0,0,outW,outH);
+ const image=octx.getImageData(0,0,outW,outH),src=image.data,mode=settings().mode,thr=settings().threshold;
+ // Grayscale + contrast stretch sederhana
+ let min=255,max=0;
+ const gray=new Uint8ClampedArray(outW*outH);
+ for(let i=0,j=0;i<src.length;i+=4,j++){
+  const g=Math.round(.299*src[i]+.587*src[i+1]+.114*src[i+2]);gray[j]=g;if(g<min)min=g;if(g>max)max=g;
+ }
+ const range=Math.max(1,max-min);
+ const contrasted=new Uint8ClampedArray(gray.length);
+ for(let i=0;i<gray.length;i++)contrasted[i]=Math.max(0,Math.min(255,Math.round((gray[i]-min)*255/range)));
+ let result=contrasted;
+ if(mode==='sharpen'){
+  result=new Uint8ClampedArray(contrasted.length);
+  for(let y=0;y<outH;y++)for(let x=0;x<outW;x++){
+   const i=y*outW+x;
+   if(x===0||y===0||x===outW-1||y===outH-1){result[i]=contrasted[i];continue;}
+   result[i]=Math.max(0,Math.min(255,5*contrasted[i]-contrasted[i-1]-contrasted[i+1]-contrasted[i-outW]-contrasted[i+outW]));
+  }
+ }else if(mode==='threshold'){
+  result=new Uint8ClampedArray(contrasted.length);
+  for(let i=0;i<result.length;i++)result[i]=contrasted[i]>=thr?255:0;
+ }
+ const out=pctx.createImageData(outW,outH);
+ for(let i=0,j=0;i<result.length;i++,j+=4){out.data[j]=out.data[j+1]=out.data[j+2]=result[i];out.data[j+3]=255;}
+ pctx.putImageData(out,0,0);
+ return processed;
+}
+function extractNumbers(text){
+ // Angka dengan desimal opsional; dukung koma desimal dan tanda minus. Buang fragmen satu digit agar noise berkurang.
+ const matches=text.match(/-?\d+(?:[.,]\d+)?/g)||[];
+ return matches.map(s=>s.replace(',', '.')).filter(s=>/\d/.test(s)&&s.length>=2);
+}
+function validate(numbers,confidence){
+ const cfg=settings();
+ if(!numbers.length)return {valid:false,reason:'Tidak ada angka yang terbaca.'};
+ if(confidence<cfg.minConfidence)return {valid:false,reason:'Keyakinan OCR di bawah batas.'};
+ const joined=numbers.join(' | ');
+ // Validasi sintaksis; batas nilai fisik harus disesuaikan dengan spesifikasi alat pengguna.
+ const values=numbers.map(Number);
+ if(values.some(v=>!Number.isFinite(v)))return {valid:false,reason:'Format angka tidak valid.'};
+ if(numbers.length===previousNumbers&&joined===previousNumbers)stableCount++;else {stableCount=1;previousNumbers=joined;}
+ if(stableCount<cfg.stable)return {valid:false,reason:`Menunggu kestabilan (${stableCount}/${cfg.stable}).`};
+ return {valid:true,reason:'Angka terbaca dan stabil; periksa secara visual sebelum digunakan.'};
+}
+async function processFrame(){
+ if(busy)return;busy=true;
+ try{
+  const canvas=cropAndEnhance(),w=await getWorker(),res=await w.recognize(canvas);
+  const text=(res.data.text||'').trim(),confidence=Math.round(res.data.confidence||0),numbers=extractNumbers(text),v=validate(numbers,confidence);
+  $('numbers').textContent=numbers.length?numbers.join('  |  '):'—';$('confidence').textContent=confidence+'%';
+  setStatus((v.valid?'VALID SEMENTARA: ':'BELUM VALID: ')+v.reason+(text?' OCR: '+text:'') ,v.valid?'ok':'warn');
+  const now=new Date(),row={time:now.toISOString(),displayTime:now.toLocaleString('id-ID'),text,numbers:numbers.join(' | '),confidence,status:v.valid?'Valid sementara':'Perlu verifikasi',reason:v.reason};
+  // Log hanya jika ada teks/angka, supaya tabel tidak dipenuhi frame kosong.
+  if(text||numbers.length){logRows.unshift(row);renderLogs();}
+ }catch(e){setStatus('Gagal memproses: '+e.message,'bad');}
+ finally{busy=false;}
+}
+function renderLogs(){
+ const body=$('logs');body.replaceChildren();
+ if(!logRows.length){body.innerHTML='<tr><td colspan="4">Belum ada data.</td></tr>';return;}
+ logRows.slice(0,100).forEach(r=>{const tr=document.createElement('tr');[r.displayTime,r.numbers||r.text||'—',r.confidence+'%',r.status].forEach(v=>{const td=document.createElement('td');td.textContent=v;tr.appendChild(td);});body.appendChild(tr);});
+}
+function exportCsv(){
+ if(!logRows.length){setStatus('Belum ada log untuk diekspor.','warn');return;}
+ const rows=[['timestamp_iso','waktu_lokal','teks_ocr','angka','confidence_persen','status','catatan']];
+ logRows.slice().reverse().forEach(r=>rows.push([r.time,r.displayTime,r.text,r.numbers,r.confidence,r.status,r.reason]));
+ const csv='\uFEFF'+rows.map(row=>row.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');
+ const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'}),url=URL.createObjectURL(blob),a=document.createElement('a');
+ a.href=url;a.download='meter-reader-log.csv';a.click();URL.revokeObjectURL(url);
+}
+$('startCam').addEventListener('click',startCamera);
+$('stopCam').addEventListener('click',stopCamera);
+file.addEventListener('change',()=>{
+ const f=file.files&&file.files[0];if(!f)return;
+ stopStream();stopLoop();video.pause();if(videoUrl)URL.revokeObjectURL(videoUrl);
+ videoUrl=URL.createObjectURL(f);video.srcObject=null;video.src=videoUrl;video.controls=true;
+ video.onloadedmetadata=()=>{ $('playVideo').disabled=false;$('pauseVideo').disabled=false;setStatus('Video siap. Tekan Putar video untuk mulai OCR.','ok'); };
+ $('startCam').disabled=false;$('stopCam').disabled=true;
+});
+$('playVideo').addEventListener('click',async()=>{try{await video.play();startLoop();setStatus('Video berjalan; OCR aktif.','ok');}catch(e){setStatus('Video tidak bisa diputar: '+e.message,'bad');}});
+$('pauseVideo').addEventListener('click',()=>{video.pause();setStatus('Video dijeda.');});
+video.addEventListener('play',()=>{if(!stream)startLoop();});
+video.addEventListener('pause',()=>{if(!stream)stopLoop();});
+$('interval').addEventListener('change',()=>{if(timer)startLoop();});
+$('export').addEventListener('click',exportCsv);
+$('clear').addEventListener('click',()=>{if(confirm('Hapus semua log pembacaan?')){logRows=[];previousNumbers='';stableCount=0;renderLogs();setStatus('Log dihapus.');}});
+window.addEventListener('beforeunload',()=>{stopLoop();stopStream();if(worker)worker.terminate();if(videoUrl)URL.revokeObjectURL(videoUrl);});
+})();
+</script>
+</body>
+</html>
